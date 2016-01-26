@@ -33,7 +33,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
@@ -213,18 +212,7 @@ public class PutS3Object extends AbstractS3Processor {
         return new File(PERSISTENCE_ROOT + getIdentifier());
     }
 
-    @Override
-    public void onPropertyModified(final PropertyDescriptor descriptor, final String oldValue, final String newValue) {
-        if (descriptor.equals(KEY)
-                || descriptor.equals(BUCKET)
-                || descriptor.equals(ENDPOINT_OVERRIDE)
-                || descriptor.equals(STORAGE_CLASS)
-                || descriptor.equals(REGION)) {
-            destroyLocalState();
-        }
-    }
-
-    protected MultipartState getLocalState(final String s3ObjectKey) throws IOException {
+    protected synchronized MultipartState getLocalState(final String s3ObjectKey) throws IOException {
         // get local state if it exists
         MultipartState currState = null;
         final File persistenceFile = getPersistenceFile();
@@ -232,18 +220,6 @@ public class PutS3Object extends AbstractS3Processor {
             try (final FileInputStream fis = new FileInputStream(persistenceFile)) {
                 final Properties props = new Properties();
                 props.load(fis);
-                // DEBUG vvv
-                getLogger().info("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
-                getLogger().info("STATE getLocalState for {}", new Object[]{s3ObjectKey});
-                if (props.size() > 0) {
-                    for (Object key : props.keySet()) {
-                        getLogger().info("STATE key {}", new Object[]{key});
-                    }
-                } else {
-                    getLogger().info("STATE is EMPTY!");
-                }
-                getLogger().info("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
-                // DEBUG ^^^
                 if (props.containsKey(s3ObjectKey)) {
                     final String localSerialState = props.getProperty(s3ObjectKey);
                     if (localSerialState != null) {
@@ -260,7 +236,7 @@ public class PutS3Object extends AbstractS3Processor {
         return currState;
     }
 
-    protected void persistLocalState(final String s3ObjectKey, final MultipartState currState) throws IOException {
+    protected synchronized void persistLocalState(final String s3ObjectKey, final MultipartState currState) throws IOException {
         final String currStateStr = (currState == null) ? null : currState.toString();
         final File persistenceFile = getPersistenceFile();
         final File parentDir = persistenceFile.getParentFile();
@@ -297,25 +273,8 @@ public class PutS3Object extends AbstractS3Processor {
         }
     }
 
-    protected void removeLocalState(final String s3ObjectKey) throws IOException {
+    protected synchronized void removeLocalState(final String s3ObjectKey) throws IOException {
         persistLocalState(s3ObjectKey, null);
-    }
-
-    protected void destroyLocalState() {
-        final File persistenceFile = getPersistenceFile();
-        if (persistenceFile.exists()) {
-            if (!persistenceFile.delete()) {
-                getLogger().warn("Could not delete state file {}, attempting to delete contents.",
-                        new Object[]{persistenceFile.getAbsolutePath()});
-            } else {
-                try (final FileOutputStream fos = new FileOutputStream(persistenceFile)) {
-                    new Properties().store(fos, null);
-                } catch (IOException ioe) {
-                    getLogger().error("Could not store empty state file {} due to {}.",
-                            new Object[]{persistenceFile.getAbsolutePath(), ioe.getMessage()});
-                }
-            }
-        }
     }
 
     @Override
@@ -627,7 +586,7 @@ public class PutS3Object extends AbstractS3Processor {
         }
     }
 
-    private final Lock bucketLock = new ReentrantLock();
+    private final Lock s3BucketLock = new ReentrantLock();
     private final AtomicLong lastS3AgeOff = new AtomicLong(0L);
     private final DateFormat logFormat = new SimpleDateFormat();
 
@@ -644,7 +603,7 @@ public class PutS3Object extends AbstractS3Processor {
         final Long maxAge = context.getProperty(MULTIPART_S3_MAX_AGE).asTimePeriod(TimeUnit.MILLISECONDS);
 
         final List<MultipartUpload> ageoffList = new ArrayList<>();
-        if ((lastS3AgeOff.get() < now - ageoff_interval) && bucketLock.tryLock()) {
+        if ((lastS3AgeOff.get() < now - ageoff_interval) && s3BucketLock.tryLock()) {
             try {
 
                 ListMultipartUploadsRequest listRequest = new ListMultipartUploadsRequest(bucket);
@@ -661,7 +620,7 @@ public class PutS3Object extends AbstractS3Processor {
                 getLogger().error("Error checking S3 Multipart Upload list for {}: {}",
                         new Object[]{bucket, e.getMessage()});
             } finally {
-                bucketLock.unlock();
+                s3BucketLock.unlock();
             }
         }
         MultipartUploadListing result = new MultipartUploadListing();
