@@ -193,6 +193,8 @@ public class PutS3Object extends AbstractS3Processor {
     final static String S3_API_METHOD_PUTOBJECT = "putobject";
     final static String S3_API_METHOD_MULTIPARTUPLOAD = "multipartupload";
 
+    final static String S3_PROCESS_UNSCHEDULED_MESSAGE = "Processor unscheduled, stopping upload";
+
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return properties;
@@ -488,10 +490,8 @@ public class PutS3Object extends AbstractS3Processor {
                             for (int part = currentState.getPartETags().size() + 1;
                                  currentState.getFilePosition() < currentState.getContentLength(); part++) {
                                 if (!PutS3Object.this.isScheduled()) {
-                                    getLogger().info("Processor unscheduled, stopping upload flowfile={} part={} " +
-                                            "uploadId={}", new Object[]{ffFilename, part, currentState.getUploadId()});
-                                    session.rollback();
-                                    return;
+                                    throw new IOException(S3_PROCESS_UNSCHEDULED_MESSAGE + " flowfile=" + ffFilename +
+                                            " part=" + part + " uploadId=" + currentState.getUploadId());
                                 }
                                 thisPartSize = Math.min(currentState.getPartSize(),
                                         (currentState.getContentLength() - currentState.getFilePosition()));
@@ -572,18 +572,23 @@ public class PutS3Object extends AbstractS3Processor {
             session.getProvenanceReporter().send(flowFile, url, millis);
 
             getLogger().info("Successfully put {} to Amazon S3 in {} milliseconds", new Object[] {ff, millis});
+            try {
+                removeLocalState(cacheKey);
+            } catch (IOException e) {
+                getLogger().info("Error trying to delete key {} from cache: {}",
+                        new Object[]{cacheKey, e.getMessage()});
+            }
         } catch (final ProcessException | AmazonClientException pe) {
-            getLogger().error("Failed to put {} to Amazon S3 due to {}", new Object[] {flowFile, pe});
-            flowFile = session.penalize(flowFile);
-            session.transfer(flowFile, REL_FAILURE);
+            if (pe.getMessage().contains(S3_PROCESS_UNSCHEDULED_MESSAGE)) {
+                getLogger().info(pe.getMessage());
+                session.rollback();
+            } else {
+                getLogger().error("Failed to put {} to Amazon S3 due to {}", new Object[]{flowFile, pe});
+                flowFile = session.penalize(flowFile);
+                session.transfer(flowFile, REL_FAILURE);
+            }
         }
 
-        try {
-            removeLocalState(cacheKey);
-        } catch (IOException e) {
-            getLogger().info("Error trying to delete key {} from cache: {}",
-                    new Object[]{cacheKey, e.getMessage()});
-        }
     }
 
     private final Lock s3BucketLock = new ReentrantLock();
