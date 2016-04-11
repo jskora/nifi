@@ -97,6 +97,8 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
     public static final int VERBOSE_LOG_THRESHOLD = 10;
     public static final String DEFAULT_FLOWFILE_PATH = "./";
 
+    public static final String ROLLBACK_COUNT_ATTR_NAME = "rollback.count";
+
     private static final Logger LOG = LoggerFactory.getLogger(StandardProcessSession.class);
     private static final Logger claimLog = LoggerFactory.getLogger(StandardProcessSession.class.getSimpleName() + ".claims");
 
@@ -909,13 +911,20 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
             if (record.getOriginal() != null) {
                 final FlowFileQueue originalQueue = record.getOriginalQueue();
                 if (originalQueue != null) {
+                    Long rollbackCount = 0L;
+                    if (record.getCurrent().getAttributes().containsKey(ROLLBACK_COUNT_ATTR_NAME)) {
+                        rollbackCount = Long.parseLong(record.getOriginalAttributes().get(ROLLBACK_COUNT_ATTR_NAME));
+                    }
+                    rollbackCount += 1;
+                    FlowFileRecord fileRecord;
                     if (penalize) {
                         final long expirationEpochMillis = System.currentTimeMillis() + context.getConnectable().getPenalizationPeriod(TimeUnit.MILLISECONDS);
-                        final FlowFileRecord newFile = new StandardFlowFileRecord.Builder().fromFlowFile(record.getOriginal()).penaltyExpirationTime(expirationEpochMillis).build();
-                        originalQueue.put(newFile);
+                        fileRecord = new StandardFlowFileRecord.Builder().fromFlowFile(record.getOriginal()).penaltyExpirationTime(expirationEpochMillis).build();
                     } else {
-                        originalQueue.put(record.getOriginal());
+                        fileRecord = record.getOriginal();
                     }
+                    fileRecord = new StandardFlowFileRecord.Builder().fromFlowFile(fileRecord).addAttribute(ROLLBACK_COUNT_ATTR_NAME, rollbackCount.toString()).build();
+                    originalQueue.put(fileRecord);
                 }
             }
         }
