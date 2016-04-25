@@ -2542,7 +2542,7 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
         bldr.append("[");
         for (Connection conn : unacknowledgedFlowFiles.keySet()) {
             for (FlowFileRecord rec : unacknowledgedFlowFiles.get(conn)) {
-                if (bldr.length() > 0) {
+                if (bldr.length() > 1) {
                     bldr.append(", ");
                 }
                 bldr.append("conn=")
