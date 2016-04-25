@@ -2536,6 +2536,29 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
         return "StandardProcessSession[id=" + sessionId + "]";
     }
 
+    @Override
+    public String getUnacknowledgedFlowfileInfo() {
+        final StringBuilder bldr = new StringBuilder(1024);
+        bldr.append("[");
+        for (Connection conn : unacknowledgedFlowFiles.keySet()) {
+            for (FlowFileRecord rec : unacknowledgedFlowFiles.get(conn)) {
+                if (bldr.length() > 0) {
+                    bldr.append(", ");
+                }
+                bldr.append("conn=")
+                        .append(conn.getName())
+                        .append("/filename=")
+                        .append(rec.getAttribute(CoreAttributes.FILENAME.key()))
+                        .append("/uuid=")
+                        .append(rec.getAttribute(CoreAttributes.UUID.key()))
+                        .append("/aborts=")
+                        .append(rec.getAttribute(StandardProcessSession.ROLLBACK_COUNT_ATTR_NAME));
+            }
+        }
+        bldr.append("]");
+        return bldr.toString();
+    }
+
     /**
      * Callback interface used to poll a FlowFileQueue, in order to perform
      * functional programming-type of polling a queue

@@ -562,6 +562,29 @@ public class MockProcessSession implements ProcessSession {
     }
 
     @Override
+    public String getUnacknowledgedFlowfileInfo() {
+        StringBuilder bldr = new StringBuilder();
+        bldr.append("[");
+        for (Long flowFileId : beingProcessed) {
+            MockFlowFile flowFile = currentVersions.get(flowFileId);
+            if (bldr.length() > 0) {
+                bldr.append(", ");
+            }
+            bldr.append("conn=")
+                    .append("NA")
+                    .append("/filename=")
+                    .append(flowFile.getAttribute(CoreAttributes.FILENAME.key()))
+                    .append("/uuid=")
+                    .append(flowFile.getAttribute(CoreAttributes.UUID.key()))
+                    .append("/aborts=")
+                    .append("NA");
+
+        }
+        bldr.append("]");
+        return bldr.toString();
+    }
+
+    @Override
     public void transfer(final FlowFile flowFile) {
         validateState(flowFile);
         if (!(flowFile instanceof MockFlowFile)) {
