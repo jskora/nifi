@@ -17,7 +17,6 @@
 package org.apache.nifi.controller.scheduling;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -32,9 +31,6 @@ import org.apache.nifi.controller.EventBasedWorker;
 import org.apache.nifi.controller.EventDrivenWorkerQueue;
 import org.apache.nifi.controller.ProcessorNode;
 import org.apache.nifi.controller.ReportingTaskNode;
-import org.apache.nifi.controller.queue.FlowFileQueue;
-import org.apache.nifi.controller.queue.FlowFileSummary;
-import org.apache.nifi.controller.queue.ListFlowFileStatus;
 import org.apache.nifi.controller.repository.BatchingSessionFactory;
 import org.apache.nifi.controller.repository.ProcessContext;
 import org.apache.nifi.controller.repository.StandardFlowFileEvent;
@@ -67,8 +63,6 @@ public class EventDrivenSchedulingAgent extends AbstractSchedulingAgent {
     private final StringEncryptor encryptor;
 
     private volatile String adminYieldDuration = "1 sec";
-
-    private static final int MAX_WORKER_QUEUE_SUMMARY_ENTRIES = 5;
 
     private final ConcurrentMap<Connectable, AtomicLong> connectionIndexMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<Connectable, ScheduleState> scheduleStates = new ConcurrentHashMap<>();
@@ -340,7 +334,6 @@ public class EventDrivenSchedulingAgent extends AbstractSchedulingAgent {
                     // Use ProcessorLog to log the event so that a bulletin will be created for this processor
                     final ProcessorLog procLog = new SimpleProcessLogger(worker.getIdentifier(), worker.getProcessor());
                     procLog.error("{} failed to process session due to {}", new Object[]{worker.getProcessor(), t});
-                    procLog.warn("flowfile info [{}]", new Object[]{getWorkerQueueSummary(worker)});
                     procLog.warn("Processor Administratively Yielded for {} due to processing failure", new Object[]{adminYieldDuration});
                     logger.warn("Administratively Yielding {} due to uncaught Exception: ", worker.getProcessor());
                     logger.warn("", t);
@@ -359,29 +352,5 @@ public class EventDrivenSchedulingAgent extends AbstractSchedulingAgent {
                 scheduleState.decrementActiveThreadCount();
             }
         }
-    }
-
-    private String getWorkerQueueSummary(final ProcessorNode worker) {
-        final FlowFileQueue queue = worker.getIncomingConnections().get(0).getFlowFileQueue();
-        final String id = worker.getProcessor().getIdentifier() + "/" + Long.toString(Thread.currentThread().getId());
-        final ListFlowFileStatus status = queue.listFlowFiles(id, 1);
-        final List<FlowFileSummary> summaries = status.getFlowFileSummaries();
-        System.out.println("id=" + id + " status.queueSize=" + status.getQueueSize() + " summaries.size=" + summaries.size());
-        System.err.println("id=" + id + " status.queueSize=" + status.getQueueSize() + " summaries.size=" + summaries.size());
-        final StringBuilder bldr = new StringBuilder();
-        for (FlowFileSummary ff : summaries.subList(0, Math.min(MAX_WORKER_QUEUE_SUMMARY_ENTRIES, summaries.size()))) {
-            if (bldr.length() > 0) {
-                bldr.append(" ");
-            }
-            bldr.append("flowfile.filename=")
-                    .append(ff.getFilename())
-                    .append("/.uuid=")
-                    .append(ff.getUuid());
-        }
-        if (summaries.size() > MAX_WORKER_QUEUE_SUMMARY_ENTRIES) {
-            bldr.append(summaries.size() - MAX_WORKER_QUEUE_SUMMARY_ENTRIES)
-                    .append(" additional entries suppressed");
-        }
-        return bldr.toString();
     }
 }
