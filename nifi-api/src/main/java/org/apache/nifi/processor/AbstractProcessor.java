@@ -27,7 +27,8 @@ public abstract class AbstractProcessor extends AbstractSessionFactoryProcessor 
             onTrigger(context, session);
             session.commit();
         } catch (final Throwable t) {
-            getLogger().error("{} failed to process due to {}; rolling back session", new Object[]{this, t});
+            getLogger().error("{} failed to process due to {}; rolling back session with unacknowledged flowfiles {}",
+                    new Object[]{this, t, session.getUnacknowledgedFlowfileInfo()});
             session.rollback(true);
             throw t;
         }

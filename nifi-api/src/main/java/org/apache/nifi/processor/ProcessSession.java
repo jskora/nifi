@@ -109,6 +109,17 @@ public interface ProcessSession {
     void rollback(boolean penalize);
 
     /**
+     * Produces a listing of pertinent information about the session's
+     * unacknowledged flowfiles that can be used for logging purposes.  If the
+     * session fails for any reason this can help identify problem files with
+     * minimal system impact.
+     *
+     * @return {@link String} listing pertinent information about the session's
+     * unacknowledged flowfiles, primarily intended for logging purposes.
+     */
+    String getUnacknowledgedFlowfileInfo();
+
+    /**
      * Adjusts counter data for the given counter name and takes care of
      * registering the counter if not already present. The adjustment occurs
      * only if and when the ProcessSession is committed.
