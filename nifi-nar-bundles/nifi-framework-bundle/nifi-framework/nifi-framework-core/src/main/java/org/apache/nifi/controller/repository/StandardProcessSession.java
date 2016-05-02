@@ -75,6 +75,7 @@ import org.apache.nifi.provenance.ProvenanceReporter;
 import org.apache.nifi.provenance.StandardProvenanceEventRecord;
 import org.apache.nifi.stream.io.BufferedOutputStream;
 import org.apache.nifi.stream.io.StreamUtils;
+import org.apache.nifi.util.NiFiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -113,6 +114,9 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
     private final long sessionId;
     private final String connectableDescription;
 
+    private final Boolean isRollbackCountEnabled;
+    private final Boolean isRollbackLogUnackFFEnabled;
+
     private final Set<String> removedFlowFiles = new HashSet<>();
     private final Set<String> createdFlowFiles = new HashSet<>();
 
@@ -128,6 +132,8 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
     private ContentClaim currentReadClaim = null;
     private ByteCountingInputStream currentReadClaimStream = null;
     private long processingStartTime;
+
+
 
     // maps a FlowFile to all Provenance Events that were generated for that FlowFile.
     // we do this so that if we generate a Fork event, for example, and then remove the event in the same
@@ -176,6 +182,9 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
             context.getProvenanceRepository(), this);
         this.sessionId = idGenerator.getAndIncrement();
         this.connectableDescription = description;
+
+        this.isRollbackCountEnabled = NiFiProperties.getInstance().isRollbackCountEnabled();
+        this.isRollbackLogUnackFFEnabled = NiFiProperties.getInstance().isRollbackLogUnackFFEnabled();
 
         LOG.trace("Session {} created for {}", this, connectableDescription);
         processingStartTime = System.nanoTime();
@@ -911,11 +920,6 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
             if (record.getOriginal() != null) {
                 final FlowFileQueue originalQueue = record.getOriginalQueue();
                 if (originalQueue != null) {
-                    Long rollbackCount = 0L;
-                    if (record.getCurrent().getAttributes().containsKey(ROLLBACK_COUNT_ATTR_NAME)) {
-                        rollbackCount = Long.parseLong(record.getOriginalAttributes().get(ROLLBACK_COUNT_ATTR_NAME));
-                    }
-                    rollbackCount += 1;
                     FlowFileRecord fileRecord;
                     if (penalize) {
                         final long expirationEpochMillis = System.currentTimeMillis() + context.getConnectable().getPenalizationPeriod(TimeUnit.MILLISECONDS);
@@ -923,7 +927,19 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
                     } else {
                         fileRecord = record.getOriginal();
                     }
-                    fileRecord = new StandardFlowFileRecord.Builder().fromFlowFile(fileRecord).addAttribute(ROLLBACK_COUNT_ATTR_NAME, rollbackCount.toString()).build();
+                    final Map<String, String> attributes = new HashMap<>();
+                    if (this.isRollbackCountEnabled) {
+                        try {
+                            Long rollbackCount = 0L;
+                            if (record.getCurrent().getAttributes().containsKey(ROLLBACK_COUNT_ATTR_NAME)) {
+                                rollbackCount = Long.parseLong(record.getOriginalAttributes().get(ROLLBACK_COUNT_ATTR_NAME)) + 1;
+                            }
+                            rollbackCount += 1;
+                            attributes.put(ROLLBACK_COUNT_ATTR_NAME, rollbackCount.toString());
+                        } catch (NumberFormatException ignore) {
+                        }
+                    }
+                    fileRecord = new StandardFlowFileRecord.Builder().fromFlowFile(fileRecord).addAttributes(attributes).build();
                     originalQueue.put(fileRecord);
                 }
             }
@@ -2537,22 +2553,34 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
     }
 
     @Override
-    public String getUnacknowledgedFlowfileInfo() {
+    public String getUnacknowledgedFlowfileInfo(long maxUnackFFtoLog) {
         final StringBuilder bldr = new StringBuilder(1024);
         bldr.append("[");
-        for (Connection conn : unacknowledgedFlowFiles.keySet()) {
-            for (FlowFileRecord rec : unacknowledgedFlowFiles.get(conn)) {
-                if (bldr.length() > 1) {
-                    bldr.append(", ");
+        for (Relationship relationship : context.getAvailableRelationships()) {
+            for (Connection connection : context.getConnections(relationship)) {
+                long filesListed = 0;
+                for (FlowFileRecord rec : unacknowledgedFlowFiles.get(connection)) {
+                    if (bldr.length() > 1) {
+                        bldr.append(", ");
+                    }
+                    // todo debug connection logging
+                    bldr.append("rel=")
+                            .append(relationship.getName())
+                            .append("/conn=")
+                            .append(connection.getName())
+                            .append("/filename=")
+                            .append(rec.getAttribute(CoreAttributes.FILENAME.key()))
+                            .append("/uuid=")
+                            .append(rec.getAttribute(CoreAttributes.UUID.key()));
+                    if (isRollbackLogUnackFFEnabled) {
+                        bldr.append("/rollbacks=")
+                                .append(rec.getAttribute(StandardProcessSession.ROLLBACK_COUNT_ATTR_NAME));
+                    }
+                    filesListed++;
+                    if (filesListed > maxUnackFFtoLog) {
+                        break;
+                    }
                 }
-                bldr.append("conn=")
-                        .append(conn.getName())
-                        .append("/filename=")
-                        .append(rec.getAttribute(CoreAttributes.FILENAME.key()))
-                        .append("/uuid=")
-                        .append(rec.getAttribute(CoreAttributes.UUID.key()))
-                        .append("/aborts=")
-                        .append(rec.getAttribute(StandardProcessSession.ROLLBACK_COUNT_ATTR_NAME));
             }
         }
         bldr.append("]");

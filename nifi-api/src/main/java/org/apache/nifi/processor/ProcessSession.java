@@ -114,10 +114,12 @@ public interface ProcessSession {
      * session fails for any reason this can help identify problem files with
      * minimal system impact.
      *
+     * @param max the maximum number of unacknowledged flowfiles to include
+     *            in the message.
      * @return {@link String} listing pertinent information about the session's
      * unacknowledged flowfiles, primarily intended for logging purposes.
      */
-    String getUnacknowledgedFlowfileInfo();
+    String getUnacknowledgedFlowfileInfo(long max);
 
     /**
      * Adjusts counter data for the given counter name and takes care of

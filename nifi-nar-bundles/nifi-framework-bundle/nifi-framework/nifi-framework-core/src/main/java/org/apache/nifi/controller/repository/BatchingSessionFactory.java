@@ -73,8 +73,8 @@ public class BatchingSessionFactory implements ProcessSessionFactory {
         }
 
         @Override
-        public String getUnacknowledgedFlowfileInfo() {
-            return session.getUnacknowledgedFlowfileInfo();
+        public String getUnacknowledgedFlowfileInfo(long maxUnackFF) {
+            return session.getUnacknowledgedFlowfileInfo(maxUnackFF);
         }
 
         @Override

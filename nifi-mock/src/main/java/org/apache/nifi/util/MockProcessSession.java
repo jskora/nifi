@@ -40,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import org.apache.nifi.connectable.Connection;
 import org.apache.nifi.controller.queue.QueueSize;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
@@ -69,6 +70,8 @@ public class MockProcessSession implements ProcessSession {
     private final Map<String, Long> counterMap = new HashMap<>();
     private final MockProvenanceReporter provenanceReporter;
 
+    private final Boolean includeRollbacks;
+
     private boolean committed = false;
     private boolean rolledback = false;
     private int removedCount = 0;
@@ -77,6 +80,8 @@ public class MockProcessSession implements ProcessSession {
         this.sharedState = sharedState;
         this.processorQueue = sharedState.getFlowFileQueue();
         provenanceReporter = new MockProvenanceReporter(this, sharedState, processor.getIdentifier(), processor.getClass().getSimpleName());
+
+        this.includeRollbacks = NiFiProperties.getInstance().isRollbackCountEnabled();
     }
 
     @Override
@@ -562,23 +567,28 @@ public class MockProcessSession implements ProcessSession {
     }
 
     @Override
-    public String getUnacknowledgedFlowfileInfo() {
+    public String getUnacknowledgedFlowfileInfo(long max) {
         StringBuilder bldr = new StringBuilder();
         bldr.append("[");
+        long n = 0;
         for (Long flowFileId : beingProcessed) {
             MockFlowFile flowFile = currentVersions.get(flowFileId);
             if (bldr.length() > 0) {
                 bldr.append(", ");
             }
-            bldr.append("conn=")
-                    .append("NA")
+            bldr.append("rel=NA")
+                    .append("/conn=NA")
                     .append("/filename=")
                     .append(flowFile.getAttribute(CoreAttributes.FILENAME.key()))
                     .append("/uuid=")
-                    .append(flowFile.getAttribute(CoreAttributes.UUID.key()))
-                    .append("/aborts=")
-                    .append("NA");
-
+                    .append(flowFile.getAttribute(CoreAttributes.UUID.key()));
+            if (includeRollbacks) {
+                bldr.append("/rollbacks=NA");
+            }
+            n++;
+            if (n > max) {
+                break;
+            }
         }
         bldr.append("]");
         return bldr.toString();
