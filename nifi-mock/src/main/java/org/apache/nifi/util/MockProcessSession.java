@@ -69,8 +69,6 @@ public class MockProcessSession implements ProcessSession {
     private final Map<String, Long> counterMap = new HashMap<>();
     private final MockProvenanceReporter provenanceReporter;
 
-    private final Boolean includeRollbacks;
-
     private boolean committed = false;
     private boolean rolledback = false;
     private int removedCount = 0;
@@ -79,8 +77,6 @@ public class MockProcessSession implements ProcessSession {
         this.sharedState = sharedState;
         this.processorQueue = sharedState.getFlowFileQueue();
         provenanceReporter = new MockProvenanceReporter(this, sharedState, processor.getIdentifier(), processor.getClass().getSimpleName());
-
-        this.includeRollbacks = NiFiProperties.getInstance().isRollbackCountEnabled();
     }
 
     @Override
@@ -580,10 +576,8 @@ public class MockProcessSession implements ProcessSession {
                     .append("/filename=")
                     .append(flowFile.getAttribute(CoreAttributes.FILENAME.key()))
                     .append("/uuid=")
-                    .append(flowFile.getAttribute(CoreAttributes.UUID.key()));
-            if (includeRollbacks) {
-                bldr.append("/rollbacks=NA");
-            }
+                    .append(flowFile.getAttribute(CoreAttributes.UUID.key()))
+                    .append("/rollbacks=NA");
             n++;
             if (n > max) {
                 break;
