@@ -38,8 +38,9 @@ public abstract class AbstractProcessor extends AbstractSessionFactoryProcessor 
             onTrigger(context, session);
             session.commit();
         } catch (final Throwable t) {
-            final String unackMsg = (rollbackLogUnackFFEnabled) ?
-                    String.format("(unacknowledged flowfiles %s) ", session.getUnacknowledgedFlowfileInfo(rollbackLogUnackFFMax)) : "";
+            final String unackMsg = (rollbackLogUnackFFEnabled)
+                    ? String.format("(unacknowledged flowfiles %s) ", session.getUnacknowledgedFlowfileInfo(rollbackLogUnackFFMax))
+                    : "";
             getLogger().error("{} failed to process {}due to {}; rolling back session", new Object[]{this, unackMsg, t});
             session.rollback(true);
             throw t;

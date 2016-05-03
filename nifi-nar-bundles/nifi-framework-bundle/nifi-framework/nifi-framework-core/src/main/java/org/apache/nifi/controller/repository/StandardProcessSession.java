@@ -932,7 +932,7 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
                         try {
                             Long rollbackCount = 0L;
                             if (record.getCurrent().getAttributes().containsKey(ROLLBACK_COUNT_ATTR_NAME)) {
-                                rollbackCount = Long.parseLong(record.getOriginalAttributes().get(ROLLBACK_COUNT_ATTR_NAME)) + 1;
+                                rollbackCount = Long.parseLong(record.getOriginalAttributes().get(ROLLBACK_COUNT_ATTR_NAME));
                             }
                             rollbackCount += 1;
                             attributes.put(ROLLBACK_COUNT_ATTR_NAME, rollbackCount.toString());

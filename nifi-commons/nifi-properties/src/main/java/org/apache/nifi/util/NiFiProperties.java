@@ -231,7 +231,7 @@ public class NiFiProperties extends Properties {
     public static final String DEFAULT_BORED_YIELD_DURATION = "10 millis";
     public static final String DEFAULT_ROLLBACK_COUNT_ENABLED = "false";
     public static final String DEFAULT_ROLLBACK_LOG_UNACK_FF_ENABLED = "false";
-    public static final String DEFAULT_ROLLBACK_LOG_UNACK_FF_MAX = "5L";
+    public static final String DEFAULT_ROLLBACK_LOG_UNACK_FF_MAX = "5";
 
     // cluster common defaults
     public static final String DEFAULT_CLUSTER_PROTOCOL_HEARTBEAT_INTERVAL = "5 sec";
