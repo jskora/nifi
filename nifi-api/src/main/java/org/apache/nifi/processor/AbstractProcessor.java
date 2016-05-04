@@ -17,18 +17,12 @@
 package org.apache.nifi.processor;
 
 import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.util.NiFiProperties;
 
 public abstract class AbstractProcessor extends AbstractSessionFactoryProcessor {
-
-    private static boolean rollbackLogUnackFFEnabled;
-    private static long rollbackLogUnackFFMax;
 
     @Override
     protected void init(ProcessorInitializationContext context) {
         super.init(context);
-        rollbackLogUnackFFEnabled = NiFiProperties.getInstance().isRollbackLogUnackFFEnabled();
-        rollbackLogUnackFFMax = NiFiProperties.getInstance().getRollbackLogUnackFFMax();
     }
 
     @Override
@@ -38,10 +32,8 @@ public abstract class AbstractProcessor extends AbstractSessionFactoryProcessor 
             onTrigger(context, session);
             session.commit();
         } catch (final Throwable t) {
-            final String unackMsg = (rollbackLogUnackFFEnabled)
-                    ? String.format("(unacknowledged flowfiles %s) ", session.getUnacknowledgedFlowfileInfo(rollbackLogUnackFFMax))
-                    : "";
-            getLogger().error("{} failed to process {}due to {}; rolling back session", new Object[]{this, unackMsg, t});
+            getLogger().error("{} failed to process {}due to {}; rolling back session",
+                    new Object[]{this, session.getUnacknowledgedFlowfileInfo(), t});
             session.rollback(true);
             throw t;
         }

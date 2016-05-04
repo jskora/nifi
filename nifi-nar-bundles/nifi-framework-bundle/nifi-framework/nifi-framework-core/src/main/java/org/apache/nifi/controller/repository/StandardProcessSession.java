@@ -116,6 +116,7 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
 
     private final Boolean isRollbackCountEnabled;
     private final Boolean isRollbackLogUnackFFEnabled;
+    private final Long rollbackLogUnackFFMax;
 
     private final Set<String> removedFlowFiles = new HashSet<>();
     private final Set<String> createdFlowFiles = new HashSet<>();
@@ -185,6 +186,7 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
 
         this.isRollbackCountEnabled = NiFiProperties.getInstance().isRollbackCountEnabled();
         this.isRollbackLogUnackFFEnabled = NiFiProperties.getInstance().isRollbackLogUnackFFEnabled();
+        this.rollbackLogUnackFFMax = NiFiProperties.getInstance().getRollbackLogUnackFFMax();
 
         LOG.trace("Session {} created for {}", this, connectableDescription);
         processingStartTime = System.nanoTime();
@@ -2553,9 +2555,12 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
     }
 
     @Override
-    public String getUnacknowledgedFlowfileInfo(long maxUnackFFtoLog) {
+    public String getUnacknowledgedFlowfileInfo() {
         final StringBuilder bldr = new StringBuilder(1024);
-        bldr.append("[");
+        if (!isRollbackLogUnackFFEnabled) {
+            return "";
+        }
+        bldr.append("(unacknowledged flowfiles [");
         for (Relationship relationship : context.getAvailableRelationships()) {
             for (Connection connection : context.getConnections(relationship)) {
                 long filesListed = 0;
@@ -2572,18 +2577,18 @@ public final class StandardProcessSession implements ProcessSession, ProvenanceE
                             .append(rec.getAttribute(CoreAttributes.FILENAME.key()))
                             .append("/uuid=")
                             .append(rec.getAttribute(CoreAttributes.UUID.key()));
-                    if (isRollbackLogUnackFFEnabled) {
+                    if (isRollbackCountEnabled) {
                         bldr.append("/rollbacks=")
                                 .append(rec.getAttribute(StandardProcessSession.ROLLBACK_COUNT_ATTR_NAME));
                     }
                     filesListed++;
-                    if (filesListed > maxUnackFFtoLog) {
+                    if (filesListed > rollbackLogUnackFFMax) {
                         break;
                     }
                 }
             }
         }
-        bldr.append("]");
+        bldr.append("]) ");
         return bldr.toString();
     }
 
