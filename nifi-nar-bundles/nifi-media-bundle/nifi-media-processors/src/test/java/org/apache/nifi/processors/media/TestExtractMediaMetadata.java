@@ -17,6 +17,7 @@
 package org.apache.nifi.processors.media;
 
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.util.MockFlowFile;
@@ -42,11 +43,11 @@ public class TestExtractMediaMetadata {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
         ProcessContext context = runner.getProcessContext();
         Map<PropertyDescriptor, String> propertyValues = context.getProperties();
-        assertEquals(5, propertyValues.size());
+        assertEquals(6, propertyValues.size());
     }
 
     @Test
-    public void testRelationShips() {
+    public void testRelationships() {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
         ProcessContext context = runner.getProcessContext();
         Set<Relationship> relationships = context.getAvailableRelationships();
@@ -58,7 +59,6 @@ public class TestExtractMediaMetadata {
     @Test
     public void testTextBytes() throws IOException {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
-        runner.setProperty(ExtractMediaMetadata.FILENAME_FILTER, ".*[tTxXtT]");
         runner.setProperty(ExtractMediaMetadata.MIME_TYPE_FILTER, "text/.*");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_FILTER, "");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
@@ -89,7 +89,6 @@ public class TestExtractMediaMetadata {
     @Test
     public void testNoFlowFile() throws IOException {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
-        runner.setProperty(ExtractMediaMetadata.FILENAME_FILTER, ".*[tTxXtT]");
         runner.setProperty(ExtractMediaMetadata.MIME_TYPE_FILTER, "text/.*");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_FILTER, "");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
@@ -104,13 +103,12 @@ public class TestExtractMediaMetadata {
     @Test
     public void testTextFile() throws IOException {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
-        runner.setProperty(ExtractMediaMetadata.FILENAME_FILTER, ".*[tTxXtT]");
         runner.setProperty(ExtractMediaMetadata.MIME_TYPE_FILTER, "text/.*");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_FILTER, "");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
+        runner.enqueue(new File("target/test-classes/textFile.txt").toPath());
         runner.run();
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
@@ -119,7 +117,7 @@ public class TestExtractMediaMetadata {
         final List<MockFlowFile> successFiles = runner.getFlowFilesForRelationship(ExtractMediaMetadata.SUCCESS);
         MockFlowFile flowFile0 = successFiles.get(0);
         flowFile0.assertAttributeExists("filename");
-        flowFile0.assertAttributeEquals("filename", "notImage.txt");
+        flowFile0.assertAttributeEquals("filename", "textFile.txt");
         flowFile0.assertAttributeExists("txt.Content-Type");
         assertTrue(flowFile0.getAttribute("txt.Content-Type").startsWith("text/plain"));
         flowFile0.assertAttributeExists("txt.X-Parsed-By");
@@ -131,9 +129,50 @@ public class TestExtractMediaMetadata {
     }
 
     @Test
+    public void testBigTextFileFailsWithSmallBuffer() throws IOException {
+        final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
+        runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
+        runner.setProperty(ExtractMediaMetadata.CONTENT_BUFFER_SIZE, "100000");
+        runner.assertValid();
+
+        runner.enqueue(new File("target/test-classes/textFileBig.txt").toPath());
+        runner.run(2);
+
+        runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.FAILURE, 1);
+    }
+
+    @Test
+    public void testBigTextFile() throws IOException {
+        File textFile = new File("target/test-classes/textFileBig.txt");
+
+        final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
+        runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
+        runner.setProperty(ExtractMediaMetadata.CONTENT_BUFFER_SIZE, Long.toString(textFile.length() + 1000L));
+        runner.assertValid();
+
+        runner.enqueue(textFile.toPath());
+        runner.run(2);
+
+        runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
+        runner.assertTransferCount(ExtractMediaMetadata.FAILURE, 0);
+
+        final List<MockFlowFile> successFiles = runner.getFlowFilesForRelationship(ExtractMediaMetadata.SUCCESS);
+        MockFlowFile flowFile0 = successFiles.get(0);
+        flowFile0.assertAttributeExists("filename");
+        flowFile0.assertAttributeEquals("filename", "textFileBig.txt");
+        flowFile0.assertAttributeExists("txt.Content-Type");
+        assertTrue(flowFile0.getAttribute("txt.Content-Type").startsWith("text/plain"));
+        flowFile0.assertAttributeExists("txt.X-Parsed-By");
+        assertTrue(flowFile0.getAttribute("txt.X-Parsed-By").contains("org.apache.tika.parser.DefaultParser"));
+        assertTrue(flowFile0.getAttribute("txt.X-Parsed-By").contains("org.apache.tika.parser.txt.TXTParser"));
+        flowFile0.assertAttributeExists("txt.Content-Encoding");
+        flowFile0.assertAttributeEquals("txt.Content-Encoding", "ISO-8859-1");
+        assertEquals(flowFile0.getSize(), textFile.length());
+    }
+
+    @Test
     public void testJunkBytes() throws IOException {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
-        runner.setProperty(ExtractMediaMetadata.FILENAME_FILTER, ".*");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_FILTER, "");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "junk.");
         runner.assertValid();
@@ -142,6 +181,7 @@ public class TestExtractMediaMetadata {
         attrs.put("filename", "junk");
         Random random = new Random();
         byte[] bytes = new byte[2048];
+        random.nextBytes(bytes);
         runner.enqueue(bytes, attrs);
         runner.run();
 
@@ -160,44 +200,21 @@ public class TestExtractMediaMetadata {
     }
 
     @Test
-    public void testFilenameFilter() throws IOException {
-        final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
-        runner.setProperty(ExtractMediaMetadata.FILENAME_FILTER, ".*[dDoOcC]");
-        runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
-        runner.assertValid();
-
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
-        runner.run();
-
-        runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
-        runner.assertTransferCount(ExtractMediaMetadata.FAILURE, 0);
-
-        final List<MockFlowFile> successFiles = runner.getFlowFilesForRelationship(ExtractMediaMetadata.SUCCESS);
-        MockFlowFile flowFile0 = successFiles.get(0);
-        flowFile0.assertAttributeExists("filename");
-        flowFile0.assertAttributeEquals("filename", "notImage.txt");
-        flowFile0.assertAttributeNotExists("txt.Content-Type");
-        flowFile0.assertAttributeNotExists("txt.X-Parsed-By");
-    }
-
-    @Test
     public void testMimeTypeFilter() throws IOException {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
-        runner.setProperty(ExtractMediaMetadata.FILENAME_FILTER, ".*[tTxXtT]");
-        runner.setProperty(ExtractMediaMetadata.MIME_TYPE_FILTER, "doc.*");
+        runner.setProperty(ExtractMediaMetadata.MIME_TYPE_FILTER, "audio.*");
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
-        runner.run();
+        runner.enqueue(new File("target/test-classes/textFile.txt").toPath());
+        runner.run(2);
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
         runner.assertTransferCount(ExtractMediaMetadata.FAILURE, 0);
 
         final List<MockFlowFile> successFiles = runner.getFlowFilesForRelationship(ExtractMediaMetadata.SUCCESS);
         MockFlowFile flowFile0 = successFiles.get(0);
-        flowFile0.assertAttributeExists("filename");
-        flowFile0.assertAttributeEquals("filename", "notImage.txt");
+        flowFile0.assertAttributeExists(CoreAttributes.FILENAME.key());
         flowFile0.assertAttributeNotExists("txt.Content-Type");
         flowFile0.assertAttributeNotExists("txt.X-Parsed-By");
     }
@@ -209,7 +226,7 @@ public class TestExtractMediaMetadata {
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
+        runner.enqueue(new File("target/test-classes/textFile.txt").toPath());
         runner.run();
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
@@ -218,10 +235,11 @@ public class TestExtractMediaMetadata {
         final List<MockFlowFile> successFiles = runner.getFlowFilesForRelationship(ExtractMediaMetadata.SUCCESS);
         MockFlowFile flowFile0 = successFiles.get(0);
         flowFile0.assertAttributeExists("filename");
-        flowFile0.assertAttributeEquals("filename", "notImage.txt");
+        flowFile0.assertAttributeEquals("filename", "textFile.txt");
         flowFile0.assertAttributeExists("txt.X-Parsed-By");
         assertTrue(flowFile0.getAttribute("txt.X-Parsed-By").contains("org.apache.tika.parser.DefaultParser"));
         assertTrue(flowFile0.getAttribute("txt.X-Parsed-By").contains("org.apache.tika.parser.txt.TXTParser"));
+        flowFile0.assertAttributeNotExists("txt.Content-Encoding");
     }
 
     @Test
@@ -229,7 +247,7 @@ public class TestExtractMediaMetadata {
         TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
+        runner.enqueue(new File("target/test-classes/textFile.txt").toPath());
         runner.run();
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
@@ -244,7 +262,7 @@ public class TestExtractMediaMetadata {
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
+        runner.enqueue(new File("target/test-classes/textFile.txt").toPath());
         runner.run();
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
@@ -262,7 +280,7 @@ public class TestExtractMediaMetadata {
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
+        runner.enqueue(new File("target/test-classes/textFile.txt").toPath());
         runner.run();
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
@@ -283,7 +301,7 @@ public class TestExtractMediaMetadata {
         runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
+        runner.enqueue(new File("target/test-classes/textFile.txt").toPath());
         runner.run();
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
@@ -303,14 +321,11 @@ public class TestExtractMediaMetadata {
     @Test
     public void testBmp() throws IOException {
         final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
-        runner.setProperty(ExtractMediaMetadata.FILENAME_FILTER, ".*[tTxXtT]");
-        runner.setProperty(ExtractMediaMetadata.MIME_TYPE_FILTER, "text/.*");
-        runner.setProperty(ExtractMediaMetadata.METADATA_KEY_FILTER, "");
-        runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "txt.");
+        runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "bmp.");
         runner.assertValid();
 
-        runner.enqueue(new File("target/test-classes/notImage.txt").toPath());
-        runner.run();
+        runner.enqueue(new File("target/test-classes/16color-10x10.bmp").toPath());
+        runner.run(2);
 
         runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
         runner.assertTransferCount(ExtractMediaMetadata.FAILURE, 0);
@@ -318,15 +333,39 @@ public class TestExtractMediaMetadata {
         final List<MockFlowFile> successFiles = runner.getFlowFilesForRelationship(ExtractMediaMetadata.SUCCESS);
         MockFlowFile flowFile0 = successFiles.get(0);
         flowFile0.assertAttributeExists("filename");
-        flowFile0.assertAttributeEquals("filename", "notImage.txt");
-        flowFile0.assertAttributeExists("txt.Content-Type");
-        assertTrue(flowFile0.getAttribute("txt.Content-Type").startsWith("text/plain"));
-        flowFile0.assertAttributeExists("txt.X-Parsed-By");
-        assertTrue(flowFile0.getAttribute("txt.X-Parsed-By").contains("org.apache.tika.parser.DefaultParser"));
-        assertTrue(flowFile0.getAttribute("txt.X-Parsed-By").contains("org.apache.tika.parser.txt.TXTParser"));
-        flowFile0.assertAttributeExists("txt.Content-Encoding");
-        flowFile0.assertAttributeEquals("txt.Content-Encoding", "ISO-8859-1");
-        flowFile0.assertContentEquals("This file is not an image and is used for testing the image metadata extractor.".getBytes("UTF-8"));
+        flowFile0.assertAttributeEquals("filename", "16color-10x10.bmp");
+        flowFile0.assertAttributeExists("bmp.Content-Type");
+        flowFile0.assertAttributeEquals("bmp.Content-Type", "image/x-ms-bmp");
+        flowFile0.assertAttributeExists("bmp.X-Parsed-By");
+        assertTrue(flowFile0.getAttribute("bmp.X-Parsed-By").contains("org.apache.tika.parser.DefaultParser"));
+        assertTrue(flowFile0.getAttribute("bmp.X-Parsed-By").contains("org.apache.tika.parser.image.ImageParser"));
+        flowFile0.assertAttributeExists("bmp.height");
+        flowFile0.assertAttributeEquals("bmp.height", "10");
+        flowFile0.assertAttributeExists("bmp.width");
+        flowFile0.assertAttributeEquals("bmp.width", "10");
+    }
+
+    @Test
+    public void testJpg() throws IOException {
+        final TestRunner runner = TestRunners.newTestRunner(new ExtractMediaMetadata());
+        runner.setProperty(ExtractMediaMetadata.METADATA_KEY_PREFIX, "jpg.");
+        runner.assertValid();
+
+        runner.enqueue(new File("target/test-classes/simple.jpg").toPath());
+        runner.run(2);
+
+        runner.assertAllFlowFilesTransferred(ExtractMediaMetadata.SUCCESS, 1);
+        runner.assertTransferCount(ExtractMediaMetadata.FAILURE, 0);
+
+        final List<MockFlowFile> successFiles = runner.getFlowFilesForRelationship(ExtractMediaMetadata.SUCCESS);
+        MockFlowFile flowFile0 = successFiles.get(0);
+        flowFile0.assertAttributeExists("filename");
+        flowFile0.assertAttributeEquals("filename", "simple.jpg");
+        flowFile0.assertAttributeExists("jpg.Content-Type");
+        flowFile0.assertAttributeEquals("jpg.Content-Type", "image/jpeg");
+        flowFile0.assertAttributeExists("jpg.X-Parsed-By");
+        assertTrue(flowFile0.getAttribute("jpg.X-Parsed-By").contains("org.apache.tika.parser.DefaultParser"));
+        assertTrue(flowFile0.getAttribute("jpg.X-Parsed-By").contains("org.apache.tika.parser.jpeg.JpegParser"));
     }
 
     @Test

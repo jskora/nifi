@@ -37,8 +37,10 @@ import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationContext;
+import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.Validator;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.logging.ProcessorLog;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -65,12 +67,13 @@ import org.xml.sax.SAXException;
         + "formats."
         + "For the more details and the list of supported file types, visit the library's website "
         + "at http://tika.apache.org/.")
-@WritesAttributes({@WritesAttribute(attribute = "tika.<attribute>", description = "The extracted content metadata "
-        + "will be inserted with the attribute name \"tika.<attribute>\". ")})
+@WritesAttributes({@WritesAttribute(attribute = "<Metadata Key Prefix>.<attribute>", description = "The extracted content metadata "
+        + "will be inserted with the attribute name \"<Metadata Key Prefix>.<attribute>\", or \"<attribute>\" if "
+        + "\"Metadata Key Prefix\" is not provided.")})
 @SupportsBatching
 public class ExtractMediaMetadata extends AbstractProcessor {
 
-    public static final PropertyDescriptor MAX_NUMBER_OF_ATTRIBUTES = new PropertyDescriptor.Builder()
+    static final PropertyDescriptor MAX_NUMBER_OF_ATTRIBUTES = new PropertyDescriptor.Builder()
             .name("Max Number of Attributes")
             .description("Specify the max number of attributes to add to the flowfile. There is no guarantee in what order"
                     + " the tags will be processed. By default it will process all of them.")
@@ -78,17 +81,18 @@ public class ExtractMediaMetadata extends AbstractProcessor {
             .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor FILENAME_FILTER = new PropertyDescriptor.Builder()
-            .name("File Name Filter")
-            .description("A regular expression identifying file names which metadata should extracted.  As flowfiles"
-                    + " are processed, if the file name matches this regular expression or this expression is"
-                    + " blank, the flowfile will be scanned for it's MIME type and metadata.  If left blank, all"
-                    + " flowfiles will be scanned.")
-            .required(false)
-            .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
+    private static final PropertyDescriptor MAX_ATTRIBUTE_LENGTH = new PropertyDescriptor.Builder()
+            .name("Max Attribute Length")
+            .description("Specifies the maximum length of a single attribute value.  When a metadata item has multiple"
+                    + " values, they will be merged until this length is reached and then \", ...\" will be added as"
+                    + " an indicator that additional values where dropped.  If a single value is longer than this, it"
+                    + " will be truncated and \"(truncated)\" appended to indicate that truncation occurred.")
+            .required(true)
+            .defaultValue("10240")
+            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor MIME_TYPE_FILTER = new PropertyDescriptor.Builder()
+    static final PropertyDescriptor MIME_TYPE_FILTER = new PropertyDescriptor.Builder()
             .name("MIME Type Filter")
             .description("A regular expression identifying MIME types for which metadata should extracted.  Flowfiles"
                     + " selected for scanning by the File Name Filter are parsed to determine the MIME type and extract"
@@ -100,7 +104,7 @@ public class ExtractMediaMetadata extends AbstractProcessor {
             .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor METADATA_KEY_FILTER = new PropertyDescriptor.Builder()
+    static final PropertyDescriptor METADATA_KEY_FILTER = new PropertyDescriptor.Builder()
             .name("Metadata Key Filter")
             .description("A regular expression identifying which metadata keys received from the parser should be"
                     + " added to the flowfile attributes.  If left blank, all metadata keys parsed will be added to the"
@@ -109,7 +113,7 @@ public class ExtractMediaMetadata extends AbstractProcessor {
             .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor METADATA_KEY_PREFIX = new PropertyDescriptor.Builder()
+    static final PropertyDescriptor METADATA_KEY_PREFIX = new PropertyDescriptor.Builder()
             .name("Metadata Key Prefix")
             .description("Text to be prefixed to metadata keys as the are added to the flowfile attributes.  It is"
                     + " recommended to end with with a separator character like '.' or '-', this is not automatically "
@@ -119,32 +123,59 @@ public class ExtractMediaMetadata extends AbstractProcessor {
             .expressionLanguageSupported(true)
             .build();
 
-    public static final Relationship SUCCESS = new Relationship.Builder()
-            .name("success")
-            .description("Any FlowFile that successfully has image metadata extracted will be routed to success")
+    static final PropertyDescriptor CONTENT_BUFFER_SIZE = new PropertyDescriptor.Builder()
+            .name("Content Buffer Size")
+            .description("The size for media content buffer during processing, or -1 for unlimited.  If not"
+                    + " provided, the underlying parser default is used.")
+            .required(false)
+            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .addValidator(new Validator() {
+                @Override
+                public ValidationResult validate(String subject, String input, ValidationContext context) {
+                    Integer val = null;
+                    try {
+                        val = Integer.parseInt(input);
+                    } catch (NumberFormatException ignore) {
+                    }
+                    return new ValidationResult.Builder()
+                            .subject(subject)
+                            .input(input)
+                            .valid(val != null && val >= -1)
+                            .explanation(subject + " must be a valid integer equal to or greater than -1.")
+                            .build();
+                }
+            })
+            .expressionLanguageSupported(true)
             .build();
 
-    public static final Relationship FAILURE = new Relationship.Builder()
+    static final Relationship SUCCESS = new Relationship.Builder()
+            .name("success")
+            .description("Any FlowFile that successfully has media metadata extracted will be routed to success")
+            .build();
+
+    static final Relationship FAILURE = new Relationship.Builder()
             .name("failure")
-            .description("Any FlowFile that fails to have image metadata extracted will be routed to failure")
+            .description("Any FlowFile that fails to have media metadata extracted will be routed to failure")
             .build();
 
     private Set<Relationship> relationships;
     private List<PropertyDescriptor> properties;
 
-    private final AtomicReference<Pattern> filenameFilterRef = new AtomicReference<>();
     private final AtomicReference<Pattern> mimeTypeFilterRef = new AtomicReference<>();
     private final AtomicReference<Pattern> metadataKeyFilterRef = new AtomicReference<>();
+
+    private volatile AutoDetectParser autoDetectParser;
 
     @Override
     protected void init(final ProcessorInitializationContext context) {
 
         final List<PropertyDescriptor> properties = new ArrayList<>();
         properties.add(MAX_NUMBER_OF_ATTRIBUTES);
-        properties.add(FILENAME_FILTER);
+        properties.add(MAX_ATTRIBUTE_LENGTH);
         properties.add(MIME_TYPE_FILTER);
         properties.add(METADATA_KEY_FILTER);
         properties.add(METADATA_KEY_PREFIX);
+        properties.add(CONTENT_BUFFER_SIZE);
         this.properties = Collections.unmodifiableList(properties);
 
         final Set<Relationship> relationships = new HashSet<>();
@@ -163,15 +194,9 @@ public class ExtractMediaMetadata extends AbstractProcessor {
         return this.properties;
     }
 
+    @SuppressWarnings("unused")
     @OnScheduled
     public void onScheduled(ProcessContext context) {
-        final String fileNamePatternInput = context.getProperty(FILENAME_FILTER).getValue();
-        if (fileNamePatternInput != null && fileNamePatternInput.length() > 0) {
-            filenameFilterRef.set(Pattern.compile(fileNamePatternInput));
-        } else {
-            filenameFilterRef.set(null);
-        }
-
         final String mimeTypeFilterInput = context.getProperty(MIME_TYPE_FILTER).getValue();
         if (mimeTypeFilterInput != null && mimeTypeFilterInput.length() > 0) {
             mimeTypeFilterRef.set(Pattern.compile(mimeTypeFilterInput));
@@ -185,34 +210,30 @@ public class ExtractMediaMetadata extends AbstractProcessor {
         } else {
             metadataKeyFilterRef.set(null);
         }
+
+        autoDetectParser = new AutoDetectParser();
     }
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
-        FlowFile flowfile = session.get();
-        if (flowfile == null) {
-            return;
-        }
-
-        // fail fast if filename doesn't match filter
-        Pattern filenameFilter = filenameFilterRef.get();
-        if (filenameFilter != null && !filenameFilter.matcher(flowfile.getAttribute(CoreAttributes.FILENAME.key())).matches()) {
-            session.transfer(flowfile, SUCCESS);
+        FlowFile flowFile = session.get();
+        if (flowFile == null) {
             return;
         }
 
         final ProcessorLog logger = this.getLogger();
         final ObjectHolder<Map<String, String>> value = new ObjectHolder<>(null);
-        final Integer max = context.getProperty(MAX_NUMBER_OF_ATTRIBUTES).asInteger();
+        final Integer maxAttribCount = context.getProperty(MAX_NUMBER_OF_ATTRIBUTES).asInteger();
+        final Integer maxAttribLength = context.getProperty(MAX_ATTRIBUTE_LENGTH).asInteger();
+        final Integer contentBufferSize = context.getProperty(CONTENT_BUFFER_SIZE).evaluateAttributeExpressions().asInteger();
         final String prefix = context.getProperty(METADATA_KEY_PREFIX).evaluateAttributeExpressions().getValue();
-        final FlowFile ff = flowfile;
 
         try {
-            session.read(flowfile, new InputStreamCallback() {
+            session.read(flowFile, new InputStreamCallback() {
                 @Override
                 public void process(InputStream in) throws IOException {
                     try {
-                        Map<String, String> results = tika_parse(ff, in, prefix, max);
+                        Map<String, String> results = tika_parse(in, prefix, maxAttribCount, maxAttribLength, contentBufferSize);
                         value.set(results);
                     } catch (SAXException | TikaException e) {
                         throw new IOException(e);
@@ -223,32 +244,37 @@ public class ExtractMediaMetadata extends AbstractProcessor {
             // Write the results to attributes
             Map<String, String> results = value.get();
             if (results != null && !results.isEmpty()) {
-                flowfile = session.putAllAttributes(flowfile, results);
+                flowFile = session.putAllAttributes(flowFile, results);
             }
 
-            session.transfer(flowfile, SUCCESS);
+            session.transfer(flowFile, SUCCESS);
+            session.getProvenanceReporter().modifyAttributes(flowFile, "media attributes extracted");
         } catch (ProcessException e) {
-            logger.error("Failed to extract media metadata from {} due to {}", new Object[]{flowfile, e});
-            session.transfer(flowfile, FAILURE);
+            logger.error("Failed to extract media metadata from {} due to {}", new Object[]{flowFile, e});
+            flowFile = session.penalize(flowFile);
+            session.transfer(flowFile, FAILURE);
         }
     }
 
-    private Map<String, String> tika_parse(FlowFile ff, InputStream sourceStream, String prefix, Integer max) throws IOException, TikaException, SAXException {
+    private Map<String, String> tika_parse(InputStream sourceStream, String prefix, Integer maxAttribs, Integer maxAttribLen,
+                                           Integer contentBufSize) throws IOException, TikaException, SAXException {
         final Metadata metadata = new Metadata();
         final TikaInputStream tikaInputStream = TikaInputStream.get(sourceStream);
-        new AutoDetectParser().parse(tikaInputStream, new BodyContentHandler(), metadata);
+
+        // as of June, 2016 the default BodyContentHandler used a 100,000 byte buffer
+        final BodyContentHandler bodyContentHandler = (contentBufSize != null) ? new BodyContentHandler(contentBufSize) : new BodyContentHandler();
+        autoDetectParser.parse(tikaInputStream, bodyContentHandler, metadata);
         final String content_type = metadata.get(Metadata.CONTENT_TYPE);
 
         // if parsed MIME type doesn't match filter fail fast without processing attributes
         final Pattern mimeTypeFilter = mimeTypeFilterRef.get();
-        if (mimeTypeFilter != null && (content_type == null || !mimeTypeFilter.matcher(metadata.get(Metadata.CONTENT_TYPE)).matches())) {
+        if (mimeTypeFilter != null && (content_type == null || !mimeTypeFilter.matcher(content_type).matches())) {
             return null;
         }
 
         final Map<String, String> results = new HashMap<>();
         final Pattern metadataKeyFilter = metadataKeyFilterRef.get();
         final StringBuilder dataBuilder = new StringBuilder();
-        final String safePrefix = (prefix == null) ? "" : prefix;
         for (final String key : metadata.names()) {
             if (metadataKeyFilter != null && !metadataKeyFilter.matcher(key).matches()) {
                 continue;
@@ -259,15 +285,24 @@ public class ExtractMediaMetadata extends AbstractProcessor {
                     if (dataBuilder.length() > 1) {
                         dataBuilder.append(", ");
                     }
-                    dataBuilder.append(val);
+                    if (dataBuilder.length() + val.length() < maxAttribLen) {
+                        dataBuilder.append(val);
+                    } else {
+                        dataBuilder.append("...");
+                        break;
+                    }
                 }
             } else {
                 dataBuilder.append(metadata.get(key));
             }
-            results.put(safePrefix + key, dataBuilder.toString().trim());
+            if (prefix == null) {
+                results.put(key, dataBuilder.toString().trim());
+            } else {
+                results.put(prefix + key, dataBuilder.toString().trim());
+            }
 
             // cutoff at max if provided
-            if (max != null && results.size() >= max) {
+            if (maxAttribs != null && results.size() >= maxAttribs) {
                 break;
             }
         }

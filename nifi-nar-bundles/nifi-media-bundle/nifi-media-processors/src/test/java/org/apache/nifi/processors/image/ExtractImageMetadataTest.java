@@ -37,7 +37,7 @@ public class ExtractImageMetadataTest {
     private static String BMP_HEADER = "BMP Header.";
     private static String JPEG_HEADER = "JPEG.";
     private static String GIF_HEADER = "GIF Header.";
-    private static String PNG_HEADER = "PNG.";
+    private static String PNG_HEADER = "PNG-";
 
     private TestRunner testRunner;
 
@@ -90,15 +90,15 @@ public class ExtractImageMetadataTest {
         MockFlowFile flowFile = verifyTestRunnerFlow("src/test/resources/mspaint-8x10.png", ExtractImageMetadata.SUCCESS, null);
         Map<String, String> attributes = flowFile.getAttributes();
 
-        assertEquals("8", attributes.get(PNG_HEADER + "Image Width"));
-        assertEquals("12", attributes.get(PNG_HEADER + "Image Height"));
-        assertEquals("0.45455", attributes.get(PNG_HEADER + "Image Gamma"));
-        assertEquals("Deflate", attributes.get(PNG_HEADER + "Compression Type"));
-        assertEquals("No Interlace", attributes.get(PNG_HEADER + "Interlace Method"));
-        assertEquals("Perceptual", attributes.get(PNG_HEADER + "sRGB Rendering Intent"));
-        assertEquals("Adaptive", attributes.get(PNG_HEADER + "Filter Method"));
-        assertEquals("8", attributes.get(PNG_HEADER + "Bits Per Sample"));
-        assertEquals("True Color", attributes.get(PNG_HEADER + "Color Type"));
+        assertEquals("8", attributes.get(PNG_HEADER + "IHDR.Image Width"));
+        assertEquals("12", attributes.get(PNG_HEADER + "IHDR.Image Height"));
+        assertEquals("0.45455", attributes.get(PNG_HEADER + "gAMA.Image Gamma"));
+        assertEquals("Deflate", attributes.get(PNG_HEADER + "IHDR.Compression Type"));
+        assertEquals("No Interlace", attributes.get(PNG_HEADER + "IHDR.Interlace Method"));
+        assertEquals("Perceptual", attributes.get(PNG_HEADER + "sRGB.sRGB Rendering Intent"));
+        assertEquals("Adaptive", attributes.get(PNG_HEADER + "IHDR.Filter Method"));
+        assertEquals("8", attributes.get(PNG_HEADER + "IHDR.Bits Per Sample"));
+        assertEquals("True Color", attributes.get(PNG_HEADER + "IHDR.Color Type"));
     }
     @Test
      public void testExtractBMP() throws IOException {
