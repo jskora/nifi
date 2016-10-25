@@ -23,11 +23,21 @@ import org.apache.nifi.provenance.lineage.ComputeLineageSubmission;
 import org.apache.nifi.provenance.search.Query;
 import org.apache.nifi.provenance.search.QuerySubmission;
 import org.apache.nifi.provenance.search.SearchableField;
+import org.apache.nifi.util.NiFiProperties;
 
 import java.io.IOException;
 import java.util.*;
 
 public class NullProvenanceRepository implements ProvenanceRepository {
+
+    /**
+     * Default no args constructor for service loading only
+     */
+    public NullProvenanceRepository() {
+    }
+
+    public NullProvenanceRepository(final NiFiProperties nifiProperties) {
+    }
 
     @Override
     public void initialize(final EventReporter eventReporter, final Authorizer authorizer, final ProvenanceAuthorizableFactory resourceFactory) throws IOException {
