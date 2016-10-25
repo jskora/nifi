@@ -34,5 +34,9 @@
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-volatile-provenance-repository</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-null-provenance-repository</artifactId>
+        </dependency>
     </dependencies>
 </project>
