@@ -1030,13 +1030,13 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
                 totalAbsPathBytesUsed += bytesUsedAbsPath;
 
                 // If we have too much data (at least 90% of our max capacity), start aging it off
-                if (bytesUsedAbsPath > configuration.getMaxStorageCapacity() * 0.9) {
+                if (bytesUsedAbsPath > absPathToSizeMap.get(absPath) * 0.9) {
                     Collections.sort(sortedByBasenameAbsPath, sortByBasenameComparator);
 
                     for (final File file : sortedByBasenameAbsPath) {
                         toPurge.add(file);
                         bytesUsedAbsPath -= file.length();
-                        if (bytesUsedAbsPath < configuration.getMaxStorageCapacity()) {
+                        if (bytesUsedAbsPath < absPathToSizeMap.get(absPath) * 0.9) {
                             // we've shrunk the repo size down enough to stop
                             break;
                         }
@@ -1053,7 +1053,7 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
             for (final File file : sortedByBasename) {
                 toPurge.add(file);
                 bytesUsed -= file.length();
-                if (bytesUsed < configuration.getMaxStorageCapacity()) {
+                if (bytesUsed < configuration.getMaxStorageCapacity() * 0.9) {
                     // we've shrunk the repo size down enough to stop
                     break;
                 }
