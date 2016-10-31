@@ -17,9 +17,7 @@
 package org.apache.nifi.provenance;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.nifi.provenance.search.SearchableField;
@@ -27,6 +25,7 @@ import org.apache.nifi.provenance.search.SearchableField;
 public class RepositoryConfiguration {
 
     private final List<File> storageDirectories = new ArrayList<>();
+    private final Map<File, Long> storageDirectorySizes = new HashMap<>();
     private long recordLifeMillis = TimeUnit.MILLISECONDS.convert(24, TimeUnit.HOURS);
     private long storageCapacity = 1024L * 1024L * 1024L;   // 1 GB
     private long eventFileMillis = TimeUnit.MILLISECONDS.convert(5, TimeUnit.MINUTES);
@@ -71,12 +70,22 @@ public class RepositoryConfiguration {
     }
 
     /**
+     * Specifies where the repository will store data
+     *
+     * @return the directories where provenance files will be stored
+     */
+    public Map<File, Long> getStorageDirectorySizes() {
+        return Collections.unmodifiableMap(storageDirectorySizes);
+    }
+
+    /**
      * Specifies where the repository should store data
      *
      * @param storageDirectory the directory to store provenance files
      */
-    public void addStorageDirectory(final File storageDirectory) {
+    public void addStorageDirectory(final File storageDirectory, final Long maxSize) {
         this.storageDirectories.add(storageDirectory);
+        this.storageDirectorySizes.put(storageDirectory, maxSize);
     }
 
     /**

@@ -105,6 +105,7 @@ public abstract class NiFiProperties {
     // provenance properties
     public static final String PROVENANCE_REPO_IMPLEMENTATION_CLASS = "nifi.provenance.repository.implementation";
     public static final String PROVENANCE_REPO_DIRECTORY_PREFIX = "nifi.provenance.repository.directory.";
+    public static final String PROVENANCE_REPO_DIR_SIZE_PREFIX = "nifi.provenance.repository.directorySize.";
     public static final String PROVENANCE_MAX_STORAGE_TIME = "nifi.provenance.repository.max.storage.time";
     public static final String PROVENANCE_MAX_STORAGE_SIZE = "nifi.provenance.repository.max.storage.size";
     public static final String PROVENANCE_ROLLOVER_TIME = "nifi.provenance.repository.rollover.time";
@@ -902,6 +903,31 @@ public abstract class NiFiProperties {
             }
         }
         return provenanceRepositoryPaths;
+    }
+
+    /**
+     * Returns the provenance repository paths. This method returns a mapping of
+     * file repository name to file repository paths. It simply returns the
+     * values configured. No directories will be created as a result of this
+     * operation.
+     *
+     * @return the name and paths of all provenance repository locations
+     */
+    public Map<String, String> getProvenanceRepositorySizeStrings() {
+        final Map<String, String> provenanceRepositorySizeString = new HashMap<>();
+
+        // go through each property
+        for (String propertyName : getPropertyKeys()) {
+            // determine if the property is a file repository path
+            if (StringUtils.startsWith(propertyName, PROVENANCE_REPO_DIR_SIZE_PREFIX)) {
+                // get the repository key
+                final String key = StringUtils.substringAfter(propertyName, PROVENANCE_REPO_DIR_SIZE_PREFIX);
+
+                // attempt to resolve the path specified
+                provenanceRepositorySizeString.put(key, getProperty(propertyName));
+            }
+        }
+        return provenanceRepositorySizeString;
     }
 
     public int getMaxFlowFilesPerClaim() {

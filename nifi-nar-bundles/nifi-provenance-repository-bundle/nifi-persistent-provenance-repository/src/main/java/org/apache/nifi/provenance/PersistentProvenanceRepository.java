@@ -323,6 +323,18 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
         if (storageDirectories.isEmpty()) {
             storageDirectories.put("provenance_repository", Paths.get("provenance_repository"));
         }
+        final Map<String, String> storageDirSizeStrings = nifiProperties.getProvenanceRepositorySizeStrings();
+        final Map<String, Long> storageDirSizes = new HashMap<>();
+        for (final String repository : storageDirectories.keySet()) {
+            final String dirSizeString = storageDirSizeStrings.get(repository);
+            if (dirSizeString != null) {
+                try {
+                    storageDirSizes.put(repository, DataUnit.parseDataSize(dirSizeString, DataUnit.B).longValue());
+                } catch (IllegalArgumentException iae) {
+                    logger.warn("Could not parse provenance directory size '" + dirSizeString + "'; using 'nifi.provenance.repository.max.storage.size' instead.");
+                }
+            }
+        }
         final String storageTime = nifiProperties.getProperty(NiFiProperties.PROVENANCE_MAX_STORAGE_TIME, "24 hours");
         final String storageSize = nifiProperties.getProperty(NiFiProperties.PROVENANCE_MAX_STORAGE_SIZE, "1 GB");
         final String rolloverTime = nifiProperties.getProperty(NiFiProperties.PROVENANCE_ROLLOVER_TIME, "5 mins");
@@ -367,8 +379,9 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
         }
 
         final RepositoryConfiguration config = new RepositoryConfiguration();
-        for (final Path path : storageDirectories.values()) {
-            config.addStorageDirectory(path.toFile());
+        for (final Map.Entry<String , Path> entry: storageDirectories.entrySet()) {
+            config.addStorageDirectory(entry.getValue().toFile(),
+                    storageDirSizes.containsKey(entry.getKey()) ? storageDirSizes.get(entry.getKey()) : null);
         }
         config.setCompressOnRollover(compressOnRollover);
         config.setSearchableFields(searchableFields);
@@ -891,29 +904,46 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
     }
 
     /**
+     * Returns the size, in bytes, of the Repository storage
+     *
+     * @param logFiles the log files to consider
+     * @param timeCutoff if a log file's last modified date is before
+     * timeCutoff, it will be skipped
+     * @param absPath of the repository directory
+     * @return the size of all log files given whose last mod date comes after
+     * (or equal to) timeCutoff
+     */
+    public long getSizeForAbsPath(final List<File> logFiles, final long timeCutoff, final String absPath) {
+        long bytesUsed = 0L;
+
+        // calculate the size of the repository directory
+        for (final File file : logFiles) {
+            final String filePath = file.getAbsolutePath();
+            final long lastModified = file.lastModified();
+            if (!filePath.startsWith(absPath) || (lastModified > 0L && lastModified < timeCutoff)) {
+                continue;
+            }
+
+            bytesUsed += file.length();
+        }
+
+        // take into account the size of the indices
+        bytesUsed += indexConfig.getIndexDirectorySize(new File(absPath));
+        return bytesUsed;
+    }
+
+    /**
      * Purges old events from the repository
      *
      * @throws IOException if unable to purge old events due to an I/O problem
      */
+    @SuppressWarnings("Duplicates")
     synchronized void purgeOldEvents() throws IOException {
         while (!recoveryFinished.get()) {
             try {
                 Thread.sleep(100L);
             } catch (final InterruptedException ie) {
-            }
-        }
-
-        final List<File> toPurge = new ArrayList<>();
-        final long timeCutoff = System.currentTimeMillis() - configuration.getMaxRecordLife(TimeUnit.MILLISECONDS);
-
-        final List<File> sortedByBasename = getLogFiles();
-        long bytesUsed = getSize(sortedByBasename, timeCutoff);
-
-        for (final Path path : idToPathMap.get().values()) {
-            final File file = path.toFile();
-            final long lastModified = file.lastModified();
-            if (lastModified > 0L && lastModified < timeCutoff) {
-                toPurge.add(file);
+                //ignore
             }
         }
 
@@ -955,6 +985,67 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
             }
         };
 
+        final List<File> toPurge = new ArrayList<>();
+
+        // select files to purge based on time cutoff
+        final long timeCutoff = System.currentTimeMillis() - configuration.getMaxRecordLife(TimeUnit.MILLISECONDS);
+        for (final Path path : idToPathMap.get().values()) {
+            final File file = path.toFile();
+            final long lastModified = file.lastModified();
+            if (lastModified > 0L && lastModified < timeCutoff) {
+                toPurge.add(file);
+            }
+        }
+
+        // collect log files for size based purge by directory or total
+        final List<File> allLogFiles = getLogFiles();
+        final Map<String, Long> absPathToSizeMap = new HashMap<>();
+        final Map<String, List<File>> absPathToFiles = new HashMap<>();
+        absPathToFiles.put(null, new ArrayList<>());
+        for (Map.Entry<File, Long> entry : configuration.getStorageDirectorySizes().entrySet()) {
+            if (entry.getValue() != null && entry.getValue() > 0) {
+                final String absPath = entry.getKey().getAbsolutePath();
+                absPathToSizeMap.put(absPath, entry.getValue());
+                absPathToFiles.put(absPath, new ArrayList<>());
+            }
+        }
+        for (File file : allLogFiles) {
+            boolean found = false;
+            for (String absPath : absPathToSizeMap.keySet()) {
+                if (file.getAbsolutePath().startsWith(absPath)) {
+                    absPathToFiles.get(absPath).add(file);
+                    found = true;
+                }
+            }
+            if (!found) {
+                absPathToFiles.get(null).add(file);
+            }
+        }
+
+        long totalAbsPathBytesUsed = 0;
+        for (String absPath : absPathToFiles.keySet()) {
+            if (absPath != null) {
+                final List<File> sortedByBasenameAbsPath = absPathToFiles.get(absPath);
+                long bytesUsedAbsPath = getSize(sortedByBasenameAbsPath, timeCutoff);
+                totalAbsPathBytesUsed += bytesUsedAbsPath;
+
+                // If we have too much data (at least 90% of our max capacity), start aging it off
+                if (bytesUsedAbsPath > configuration.getMaxStorageCapacity() * 0.9) {
+                    Collections.sort(sortedByBasenameAbsPath, sortByBasenameComparator);
+
+                    for (final File file : sortedByBasenameAbsPath) {
+                        toPurge.add(file);
+                        bytesUsedAbsPath -= file.length();
+                        if (bytesUsedAbsPath < configuration.getMaxStorageCapacity()) {
+                            // we've shrunk the repo size down enough to stop
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        final List<File> sortedByBasename = absPathToFiles.get(null);
+        long bytesUsed = getSize(sortedByBasename, timeCutoff) - totalAbsPathBytesUsed;
         // If we have too much data (at least 90% of our max capacity), start aging it off
         if (bytesUsed > configuration.getMaxStorageCapacity() * 0.9) {
             Collections.sort(sortedByBasename, sortByBasenameComparator);

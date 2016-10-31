@@ -337,6 +337,13 @@ public class IndexConfiguration {
     }
 
     /**
+     * @return the amount of disk space in bytes by an index directory
+     */
+    public long getIndexDirectorySize(final File indexDirectory) {
+        return getSize(indexDirectory);
+    }
+
+    /**
      * @return the amount of disk space in bytes used by all of the indices
      */
     public long getIndexSize() {

@@ -106,7 +106,7 @@ public class TestPersistentProvenanceRepository {
 
     private RepositoryConfiguration createConfiguration() {
         config = new RepositoryConfiguration();
-        config.addStorageDirectory(new File("target/storage/" + UUID.randomUUID().toString()));
+        config.addStorageDirectory(new File("target/storage/" + UUID.randomUUID().toString()), 1024000L);
         config.setCompressOnRollover(true);
         config.setMaxEventFileLife(2000L, TimeUnit.SECONDS);
         config.setCompressionBlockBytes(100);
@@ -692,7 +692,7 @@ public class TestPersistentProvenanceRepository {
     @Test
     public void testIndexAndCompressOnRolloverAndSubsequentSearchMultipleStorageDirs() throws IOException, InterruptedException, ParseException {
         final RepositoryConfiguration config = createConfiguration();
-        config.addStorageDirectory(new File("target/storage/" + UUID.randomUUID().toString()));
+        config.addStorageDirectory(new File("target/storage/" + UUID.randomUUID().toString()), 1024000L);
         config.setMaxRecordLife(30, TimeUnit.SECONDS);
         config.setMaxStorageCapacity(1024L * 1024L);
         config.setMaxEventFileLife(1, TimeUnit.SECONDS);
