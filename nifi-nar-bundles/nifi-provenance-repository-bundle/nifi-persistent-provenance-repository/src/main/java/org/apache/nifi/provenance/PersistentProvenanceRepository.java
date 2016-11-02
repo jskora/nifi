@@ -1036,7 +1036,7 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
                     for (final File file : sortedByBasenameAbsPath) {
                         toPurge.add(file);
                         bytesUsedAbsPath -= file.length();
-                        if (bytesUsedAbsPath < absPathToSizeMap.get(absPath) * 0.9) {
+                        if (bytesUsedAbsPath < absPathToSizeMap.get(absPath) * 0.7) {
                             // we've shrunk the repo size down enough to stop
                             break;
                         }
@@ -1053,7 +1053,7 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
             for (final File file : sortedByBasename) {
                 toPurge.add(file);
                 bytesUsed -= file.length();
-                if (bytesUsed < configuration.getMaxStorageCapacity() * 0.9) {
+                if (bytesUsed < configuration.getMaxStorageCapacity() * 0.7) {
                     // we've shrunk the repo size down enough to stop
                     break;
                 }
