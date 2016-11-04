@@ -1026,7 +1026,7 @@ public class PersistentProvenanceRepository implements ProvenanceRepository {
         for (String absPath : absPathToFiles.keySet()) {
             if (absPath != null) {
                 final List<File> sortedByBasenameAbsPath = absPathToFiles.get(absPath);
-                long bytesUsedAbsPath = getSize(sortedByBasenameAbsPath, timeCutoff);
+                long bytesUsedAbsPath = getSizeForAbsPath(sortedByBasenameAbsPath, timeCutoff, absPath);
                 totalAbsPathBytesUsed += bytesUsedAbsPath;
 
                 // If we have too much data (at least 90% of our max capacity), start aging it off
