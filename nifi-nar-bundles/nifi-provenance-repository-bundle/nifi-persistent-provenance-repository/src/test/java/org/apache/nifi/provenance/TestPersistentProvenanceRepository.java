@@ -44,6 +44,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.core.SimpleAnalyzer;
 import org.apache.lucene.document.Document;
@@ -2019,6 +2020,42 @@ public class TestPersistentProvenanceRepository {
         }
     }
 
+    @Test
+    public void testWriteUtfLargerThan64k() throws IOException, InterruptedException {
+        final List<SearchableField> searchableFields = new ArrayList<>();
+        searchableFields.add(SearchableFields.Details);
+
+        final RepositoryConfiguration config = createConfiguration();
+        config.setMaxEventFileCapacity(1024L * 1024L);
+        config.setMaxEventFileLife(2, TimeUnit.SECONDS);
+        config.setCompressOnRollover(false);
+        config.setSearchableFields(searchableFields);
+        config.setJournalCount(2);
+        repo = new PersistentProvenanceRepository(config, DEFAULT_ROLLOVER_MILLIS);
+        repo.initialize(getEventReporter(), null, null);
+
+        final Map<String, String> attributes = new HashMap<>();
+        attributes.put("abc", "xyz");
+        attributes.put("xyz", "abc");
+        attributes.put("uuid", UUID.randomUUID().toString());
+
+        final ProvenanceEventBuilder builder = new StandardProvenanceEventRecord.Builder();
+        builder.setEventTime(System.currentTimeMillis());
+        builder.setEventType(ProvenanceEventType.RECEIVE);
+        builder.setTransitUri("nifi://unit-test");
+        builder.fromFlowFile(createFlowFile(3L, 3000L, attributes));
+        builder.setComponentId("1234");
+        builder.setComponentType("dummy processor");
+        final String seventyK = StringUtils.repeat("X", 70000);
+        assertTrue(seventyK.length() > 65535);
+        assertTrue(seventyK.getBytes("UTF-8").length > 65535);
+        builder.setDetails(seventyK);
+        final ProvenanceEventRecord record = builder.build();
+
+        repo.registerEvent(record);
+        repo.rolloverWithLock(true);
+        assertEquals(0, reportedEvents.size());
+    }
 
     private static class ReportedEvent {
         private final Severity severity;
