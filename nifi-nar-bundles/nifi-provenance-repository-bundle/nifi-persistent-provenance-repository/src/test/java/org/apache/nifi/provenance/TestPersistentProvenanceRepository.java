@@ -1688,7 +1688,7 @@ public class TestPersistentProvenanceRepository {
         config.setSearchableFields(searchableFields);
         config.setJournalCount(2);
         repo = new PersistentProvenanceRepository(config, DEFAULT_ROLLOVER_MILLIS);
-        repo.initialize(getEventReporter(), null, null);
+        repo.initialize(getEventReporter());
 
         final Map<String, String> attributes = new HashMap<>();
         attributes.put("abc", "xyz");
