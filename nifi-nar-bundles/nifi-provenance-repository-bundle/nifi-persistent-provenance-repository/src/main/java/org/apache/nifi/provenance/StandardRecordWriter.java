@@ -20,6 +20,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UTFDataFormatException;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -138,6 +139,50 @@ public class StandardRecordWriter implements RecordWriter {
         }
     }
 
+    private static final int MAX_ALLOWED_UTF_LENGTH = 65_535;
+
+    private int getUtfLength(String str) {
+        // see java.io.DataOutputStream.writeUTF()
+        int strlen = str.length();
+        int utflen = 0;
+        int c, count = 0;
+
+        /* use charAt instead of copying String to char array */
+        for (int i = 0; i < strlen; i++) {
+            c = str.charAt(i);
+            if ((c >= 0x0001) && (c <= 0x007F)) {
+                utflen++;
+            } else if (c > 0x07FF) {
+                utflen += 3;
+            } else {
+                utflen += 2;
+            }
+        }
+
+        return utflen;
+    }
+
+    private void writeUTFLimited(final DataOutputStream out, final String utfString, final ProvenanceEventRecord record) throws IOException {
+        try {
+            out.writeUTF(utfString);
+        } catch (UTFDataFormatException e) {
+            String truncated = utfString.substring(0, MAX_ALLOWED_UTF_LENGTH);
+            int utfLength = getUtfLength(truncated);
+            if (utfLength > MAX_ALLOWED_UTF_LENGTH) {
+                // Subtract the overage based on "overage = max - utflen" and new length is "max - overage"
+                // without storing or calculating twice.
+                truncated = truncated.substring(0, MAX_ALLOWED_UTF_LENGTH * 2 - utfLength);
+            }
+            logger.warn("Truncating UTF value!  Attempted to write string of length {}, which is greater than "
+                            + "supported maximum allowed ({}).\nRecorded was: {}",
+                    utfLength, MAX_ALLOWED_UTF_LENGTH, record);
+            if (logger.isDebugEnabled()) {
+                logger.warn("String value was:\n{}", truncated);
+            }
+            out.writeUTF(truncated);
+        }
+    }
+
     @Override
     public synchronized long writeRecord(final ProvenanceEventRecord record, final long recordIdentifier) throws IOException {
         if (isDirty()) {
@@ -161,7 +206,7 @@ public class StandardRecordWriter implements RecordWriter {
             }
 
             out.writeLong(recordIdentifier);
-            out.writeUTF(record.getEventType().name());
+            writeUTFLimited(out, record.getEventType().name(), record);
             out.writeLong(record.getEventTime());
             out.writeLong(record.getFlowFileEntryDate());
             out.writeLong(record.getEventDuration());
@@ -169,10 +214,10 @@ public class StandardRecordWriter implements RecordWriter {
             writeUUIDs(out, record.getLineageIdentifiers());
             out.writeLong(record.getLineageStartDate());
 
-            writeNullableString(out, record.getComponentId());
-            writeNullableString(out, record.getComponentType());
+            writeNullableString(out, record.getComponentId(), record);
+            writeNullableString(out, record.getComponentType(), record);
             writeUUID(out, record.getFlowFileUuid());
-            writeNullableString(out, record.getDetails());
+            writeNullableString(out, record.getDetails(), record);
 
             // Write FlowFile attributes
             final Map<String, String> attrs = record.getPreviousAttributes();
@@ -192,9 +237,9 @@ public class StandardRecordWriter implements RecordWriter {
             // If Content Claim Info is present, write out a 'TRUE' followed by claim info. Else, write out 'false'.
             if (record.getContentClaimSection() != null && record.getContentClaimContainer() != null && record.getContentClaimIdentifier() != null) {
                 out.writeBoolean(true);
-                out.writeUTF(record.getContentClaimContainer());
-                out.writeUTF(record.getContentClaimSection());
-                out.writeUTF(record.getContentClaimIdentifier());
+                writeUTFLimited(out, record.getContentClaimContainer(), record);
+                writeUTFLimited(out, record.getContentClaimSection(), record);
+                writeUTFLimited(out, record.getContentClaimIdentifier(), record);
                 if (record.getContentClaimOffset() == null) {
                     out.writeLong(0L);
                 } else {
@@ -208,9 +253,9 @@ public class StandardRecordWriter implements RecordWriter {
             // If Previous Content Claim Info is present, write out a 'TRUE' followed by claim info. Else, write out 'false'.
             if (record.getPreviousContentClaimSection() != null && record.getPreviousContentClaimContainer() != null && record.getPreviousContentClaimIdentifier() != null) {
                 out.writeBoolean(true);
-                out.writeUTF(record.getPreviousContentClaimContainer());
-                out.writeUTF(record.getPreviousContentClaimSection());
-                out.writeUTF(record.getPreviousContentClaimIdentifier());
+                writeUTFLimited(out, record.getPreviousContentClaimContainer(), record);
+                writeUTFLimited(out, record.getPreviousContentClaimSection(), record);
+                writeUTFLimited(out, record.getPreviousContentClaimIdentifier(), record);
                 if (record.getPreviousContentClaimOffset() == null) {
                     out.writeLong(0L);
                 } else {
@@ -227,23 +272,23 @@ public class StandardRecordWriter implements RecordWriter {
             }
 
             // write out the identifier of the destination queue.
-            writeNullableString(out, record.getSourceQueueIdentifier());
+            writeNullableString(out, record.getSourceQueueIdentifier(), record);
 
             // Write type-specific info
             if (recordType == ProvenanceEventType.FORK || recordType == ProvenanceEventType.JOIN || recordType == ProvenanceEventType.CLONE || recordType == ProvenanceEventType.REPLAY) {
                 writeUUIDs(out, record.getParentUuids());
                 writeUUIDs(out, record.getChildUuids());
             } else if (recordType == ProvenanceEventType.RECEIVE) {
-                writeNullableString(out, record.getTransitUri());
-                writeNullableString(out, record.getSourceSystemFlowFileIdentifier());
+                writeNullableString(out, record.getTransitUri(), record);
+                writeNullableString(out, record.getSourceSystemFlowFileIdentifier(), record);
             } else if (recordType == ProvenanceEventType.FETCH) {
-                writeNullableString(out, record.getTransitUri());
+                writeNullableString(out, record.getTransitUri(), record);
             } else if (recordType == ProvenanceEventType.SEND) {
-                writeNullableString(out, record.getTransitUri());
+                writeNullableString(out, record.getTransitUri(), record);
             } else if (recordType == ProvenanceEventType.ADDINFO) {
-                writeNullableString(out, record.getAlternateIdentifierUri());
+                writeNullableString(out, record.getAlternateIdentifierUri(), record);
             } else if (recordType == ProvenanceEventType.ROUTE) {
-                writeNullableString(out, record.getRelationship());
+                writeNullableString(out, record.getRelationship(), record);
             }
 
             out.flush();
@@ -270,12 +315,12 @@ public class StandardRecordWriter implements RecordWriter {
         }
     }
 
-    protected void writeNullableString(final DataOutputStream out, final String toWrite) throws IOException {
+    protected void writeNullableString(final DataOutputStream out, final String toWrite, final ProvenanceEventRecord record) throws IOException {
         if (toWrite == null) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
-            out.writeUTF(toWrite);
+            writeUTFLimited(out, toWrite, record);
         }
     }
 
