@@ -56,31 +56,32 @@ public class PriorityAttributePrioritizer implements FlowFilePrioritizer {
             return 1;
         }
 
-        // priority exists on both FlowFiles
-        if (intPattern.matcher(o1Priority.trim()).matches()) {
-            if (intPattern.matcher(o2Priority.trim()).matches()) {
-                try {
-                    // both o1Priority and o2Priority are numbers
-                    long o1num = Long.parseLong(o1Priority.trim());
-                    long o2num = Long.parseLong(o2Priority.trim());
-                    return o1num < o2num ? -1 : (o1num > o2num ? 1 : 0);
-                } catch (NumberFormatException e) {
-                    // not a long after regex matched
-                    return 0;
-                }
-            } else {
-                // o1Priority is a number, o2Priority is not, o1 wins
-                return -1;
-            }
-        } else {
-            if (intPattern.matcher(o2Priority.trim()).matches()) {
-                // o2Priority is a number, o1Priority is not, o2 wins
-                return 1;
-            } else {
-                // neither o1Priority nor o2Priority are numbers
-                return o1Priority.compareTo(o2Priority);
-            }
-        }
+        return o1Priority.compareTo(o2Priority);
+//        // priority exists on both FlowFiles
+//        if (intPattern.matcher(o1Priority.trim()).matches()) {
+//            if (intPattern.matcher(o2Priority.trim()).matches()) {
+//                try {
+//                    // both o1Priority and o2Priority are numbers
+//                    long o1num = Long.parseLong(o1Priority.trim());
+//                    long o2num = Long.parseLong(o2Priority.trim());
+//                    return o1num < o2num ? -1 : (o1num > o2num ? 1 : 0);
+//                } catch (NumberFormatException e) {
+//                    // not a long after regex matched
+//                    return 0;
+//                }
+//            } else {
+//                // o1Priority is a number, o2Priority is not, o1 wins
+//                return -1;
+//            }
+//        } else {
+//            if (intPattern.matcher(o2Priority.trim()).matches()) {
+//                // o2Priority is a number, o1Priority is not, o2 wins
+//                return 1;
+//            } else {
+//                // neither o1Priority nor o2Priority are numbers
+//                return o1Priority.compareTo(o2Priority);
+//            }
+//        }
     }
 
 }
