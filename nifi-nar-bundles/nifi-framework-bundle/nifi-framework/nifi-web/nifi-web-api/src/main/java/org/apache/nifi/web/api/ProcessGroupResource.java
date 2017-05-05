@@ -519,7 +519,7 @@ public class ProcessGroupResource extends ApplicationResource {
     @Path("{id}/process-groups")
     @ApiOperation(
             value = "Gets all process groups",
-            response = ProcessorsEntity.class,
+            response = ProcessGroupsEntity.class,
             authorizations = {
                     @Authorization(value = "Read - /process-groups/{uuid}", type = "")
             }
