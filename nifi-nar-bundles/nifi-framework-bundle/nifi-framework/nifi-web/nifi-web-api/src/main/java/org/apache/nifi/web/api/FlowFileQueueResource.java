@@ -429,7 +429,7 @@ public class FlowFileQueueResource extends ApplicationResource {
     @Path("{id}/listing-requests/{listing-request-id}")
     @ApiOperation(
             value = "Cancels and/or removes a request to list the contents of this connection.",
-            response = DropRequestEntity.class,
+            response = ListingRequestEntity.class,
             authorizations = {
                     @Authorization(value = "Read Source Data - /data/{component-type}/{uuid}", type = "")
             }
